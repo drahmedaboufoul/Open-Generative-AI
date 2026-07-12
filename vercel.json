@@ -1,6 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs",
-  "installCommand": "git submodule update --init --recursive && npm install && npm run build:packages",
-  "buildCommand": "npm run build"
+  "framework": "nextjs"
 }
