@@ -3,6 +3,9 @@ import { NextResponse } from 'next/server';
 const MUAPI_BASE = 'https://api.muapi.ai';
 
 function getApiKey(request) {
+    // Managed tower deployment: the server key is authoritative and never exposed to
+    // the browser. Falls back to client-supplied auth for BYO-key / local dev.
+    if (process.env.MUAPI_API_KEY) return process.env.MUAPI_API_KEY;
     const authHeader = request.headers.get('Authorization');
     if (authHeader && authHeader.startsWith('Bearer ')) {
         return authHeader.substring(7);
