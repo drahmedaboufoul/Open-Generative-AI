@@ -11,6 +11,7 @@ const DesignAgentStudio = dynamic(() => import('studio').then(mod => mod.DesignA
 });
 import axios from 'axios';
 import ApiKeyModal from './ApiKeyModal';
+import BriefEnhancer from './BriefEnhancer';
 
 const TABS = [
   { id: 'image',   label: 'Image Studio' },
@@ -135,7 +136,11 @@ export default function StandaloneShell() {
 
   useEffect(() => {
     setHasMounted(true);
-    const stored = localStorage.getItem(STORAGE_KEY);
+    // Managed tower deployment: the real MuAPI key lives on the server (injected by the
+    // /api proxy) and is never shipped to the browser. Seed a placeholder so the studio
+    // doesn't gate on the key modal; every request is keyed server-side regardless.
+    const managed = process.env.NEXT_PUBLIC_MUAPI_MANAGED === '1';
+    const stored = localStorage.getItem(STORAGE_KEY) || (managed ? 'managed' : null);
     if (stored) {
       setApiKey(stored);
       fetchBalance(stored);
@@ -245,6 +250,9 @@ export default function StandaloneShell() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* Featherless brief → on-brand prompt (Xaen tower). Floating, self-contained. */}
+      <BriefEnhancer />
+
       {/* Drag Overlay */}
       {isDragging && (
         <div className="fixed inset-0 z-[100] bg-[#22d3ee]/10 backdrop-blur-md border-4 border-dashed border-[#22d3ee]/50 flex items-center justify-center pointer-events-none transition-all duration-300">

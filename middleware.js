@@ -36,7 +36,19 @@ export function middleware(request) {
 
         if (url.pathname.startsWith('/api/v1') && !isHandledByRoute) {
             const targetUrl = new URL(url.pathname + url.search, 'https://api.muapi.ai');
-            const rewriteResponse = NextResponse.rewrite(targetUrl);
+            // Tower deployment (managed mode): when MUAPI_API_KEY is set on the server we
+            // inject it here so the key is never sent to the browser and no user has to
+            // paste one. The server key wins over any client-supplied x-api-key. When
+            // unset, requests pass through with whatever the client sent (BYO-key / dev).
+            const serverKey = process.env.MUAPI_API_KEY;
+            let rewriteResponse;
+            if (serverKey) {
+                const requestHeaders = new Headers(request.headers);
+                requestHeaders.set('x-api-key', serverKey);
+                rewriteResponse = NextResponse.rewrite(targetUrl, { request: { headers: requestHeaders } });
+            } else {
+                rewriteResponse = NextResponse.rewrite(targetUrl);
+            }
             return addSecurityHeaders(rewriteResponse);
         }
     }

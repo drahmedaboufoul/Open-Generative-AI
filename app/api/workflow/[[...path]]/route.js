@@ -3,6 +3,9 @@ import { NextResponse } from 'next/server';
 const MUAPI_BASE = 'https://api.muapi.ai';
 
 function getApiKey(request) {
+    // Managed tower deployment: the server key is authoritative and never exposed to
+    // the browser. Falls back to a client-supplied key for BYO-key / local dev.
+    if (process.env.MUAPI_API_KEY) return process.env.MUAPI_API_KEY;
     // Only accept x-api-key header. Cookie-based auth is removed for security:
     // cookies without HttpOnly flag can be stolen by any XSS (CWE-522).
     const headerKey = request.headers.get('x-api-key');
