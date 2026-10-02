@@ -59,21 +59,35 @@ test('a wrong code is refused and the half-open session is signed out', async ()
   assert.equal(calls.at(-1).auth, 'Bearer aal1');
 });
 
-test('an account without a verified authenticator is refused', async () => {
+test('an account without a verified authenticator is refused with the same words as a wrong password', async () => {
   for (const factors of [[], [{ id: 'f1', factor_type: 'totp', status: 'unverified' }], [{ id: 'p1', factor_type: 'phone', status: 'verified' }], undefined]) {
     const { fetchImpl, calls } = fakeTower(ownerScript({ '/token': { status: 200, body: { access_token: 'aal1', user: { factors } } } }));
     const result = await ownerSignIn({ credentials: CREDS, config: CONFIG, secret: SECRET, fetchImpl });
-    assert.equal(result.status, 403);
-    assert.equal(result.cookie, undefined);
+    assert.deepEqual(result, { status: 401, error: GENERIC_REFUSAL });
     assert.equal(calls.at(-1).path, '/logout?scope=local');
   }
 });
 
-test('any account that is not the platform owner is refused', async () => {
+test('the code may belong to the second authenticator', async () => {
+  const { fetchImpl, calls } = fakeTower(ownerScript({
+    '/token': { status: 200, body: { access_token: 'aal1', user: { factors: [
+      { id: 'f1', factor_type: 'totp', status: 'verified' },
+      { id: 'f2', factor_type: 'totp', status: 'verified' },
+    ] } } },
+    '/factors/f1/verify': { status: 422, body: {} },
+    '/factors/f2/challenge': { status: 200, body: { id: 'c2' } },
+    '/factors/f2/verify': { status: 200, body: { access_token: 'aal2' } },
+  }));
+  const result = await ownerSignIn({ credentials: CREDS, config: CONFIG, secret: SECRET, fetchImpl });
+  assert.equal(result.status, 200);
+  assert.ok(calls.some((c) => c.path === '/factors/f2/verify'));
+});
+
+test('any account that is not the platform owner is refused with the same words', async () => {
   for (const app_metadata of [{}, { platform_owner: 'true' }, { platform_owner: false }, undefined]) {
-    const { fetchImpl } = fakeTower(ownerScript({ '/user': { status: 200, body: { id: 'staff-uuid', app_metadata } } }));
+    const { fetchImpl } = fakeTower(ownerScript({ '/user': { status: 200, body: { id: 'staff-uuid', app_metadata, user_metadata: { platform_owner: true } } } }));
     const result = await ownerSignIn({ credentials: CREDS, config: CONFIG, secret: SECRET, fetchImpl });
-    assert.deepEqual(result, { status: 403, error: GENERIC_REFUSAL });
+    assert.deepEqual(result, { status: 401, error: GENERIC_REFUSAL }, 'user_metadata never counts');
   }
 });
 

@@ -1,11 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { safeNextPath } from '@/lib/studio-session';
 
+// The destination after sign-in goes through the same same-origin check as
+// the server, resolved against this page's own origin.
 function nextPath() {
   if (typeof window === 'undefined') return '/studio';
   const next = new URLSearchParams(window.location.search).get('next') || '/studio';
-  return next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : '/studio';
+  return safeNextPath(next, window.location.origin);
 }
 
 export default function LoginPage() {

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { sessionSecret, signSession, verifySession, safeNextPath, SESSION_TTL_SECONDS } from '../lib/studio-session.js';
+import { sessionSecret, signSession, verifySession, safeNextPath, sameSiteRequest, SESSION_TTL_SECONDS } from '../lib/studio-session.js';
+import { createAttemptLimiter, clientAddress } from '../lib/studio-attempts.js';
 
 const SECRET = 'x'.repeat(48);
 const OTHER = 'y'.repeat(48);
@@ -54,10 +55,50 @@ test('forged, tampered, expired and foreign sessions are refused', async () => {
 
 test('only same-site paths survive as the post-login destination', () => {
   assert.equal(safeNextPath('/studio/video'), '/studio/video');
-  assert.equal(safeNextPath('/workflow/abc?tab=x'), '/workflow/abc?tab=x');
-  for (const bad of ['https://evil.example', '//evil.example', '/\\evil.example', '/login', '/api/v1/x', '', null, 'studio']) {
-    assert.equal(safeNextPath(bad), '/studio', String(bad));
+  assert.equal(safeNextPath('/workflow/abc?tab=x#y'), '/workflow/abc?tab=x#y');
+  assert.equal(safeNextPath('/studio', 'https://studio.example'), '/studio');
+  const bad = ['https://evil.example', '//evil.example', '/\\evil.example', '/x\\y', '/login', '/api/v1/x', '', null, 'studio',
+    '/\t/evil.example', '/\n/evil.example', '/\r/evil.example/x', '/\u0000/evil.example'];
+  for (const value of bad) {
+    assert.equal(safeNextPath(value, 'https://studio.example'), '/studio', JSON.stringify(value));
   }
+  // The browser drops tabs and line breaks before resolving: the guard must
+  // never return a value that resolves off-origin.
+  for (const value of bad.filter((v) => typeof v === 'string')) {
+    const resolved = new URL(safeNextPath(value, 'https://studio.example'), 'https://studio.example');
+    assert.equal(resolved.origin, 'https://studio.example', JSON.stringify(value));
+  }
+});
+
+test('the epoch setting signs every session out', async () => {
+  const key = 'm'.repeat(40);
+  const before = sessionSecret({ MUAPI_API_KEY: key });
+  const after = sessionSecret({ MUAPI_API_KEY: key, STUDIO_SESSION_EPOCH: '2026-10-02' });
+  assert.notEqual(before, after);
+  const cookie = await signSession({ sub: 'owner-id' }, before);
+  assert.equal(await verifySession(cookie, after), null);
+  assert.equal(SESSION_TTL_SECONDS, 4 * 60 * 60);
+});
+
+test('sign-in and sign-out refuse requests started by another site', () => {
+  const h = (o) => new Headers(o);
+  assert.equal(sameSiteRequest(h({})), true, 'no browser headers (curl)');
+  assert.equal(sameSiteRequest(h({ 'sec-fetch-site': 'same-origin', origin: 'https://studio.example', host: 'studio.example' })), true);
+  assert.equal(sameSiteRequest(h({ 'sec-fetch-site': 'cross-site' })), false);
+  assert.equal(sameSiteRequest(h({ 'sec-fetch-site': 'same-site' })), false);
+  assert.equal(sameSiteRequest(h({ origin: 'https://evil.example', host: 'studio.example' })), false);
+  assert.equal(sameSiteRequest(h({ origin: 'https://studio.example', 'x-forwarded-host': 'studio.example', host: 'internal' })), true);
+  assert.equal(sameSiteRequest(h({ origin: 'null', host: 'studio.example' })), false);
+});
+
+test('the attempt cap allows five tries a minute per address', () => {
+  const allow = createAttemptLimiter({ limit: 5, windowMs: 60_000 });
+  const t0 = 1_000_000;
+  for (let i = 0; i < 5; i += 1) assert.equal(allow('1.2.3.4', t0 + i), true);
+  assert.equal(allow('1.2.3.4', t0 + 10), false);
+  assert.equal(allow('5.6.7.8', t0 + 10), true, 'another address is separate');
+  assert.equal(allow('1.2.3.4', t0 + 60_000), true, 'a new window opens');
+  assert.equal(clientAddress(new Headers({ 'x-forwarded-for': '9.9.9.9, 10.0.0.1' })), '9.9.9.9');
 });
 
 test('the middleware gates every path except sign-in, and before the MuAPI rewrite', () => {
