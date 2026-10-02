@@ -52,6 +52,20 @@ surface, **pre-wired** so nobody pastes a key:
    - Optional: `FEATHERLESS_MODEL`, `FEATHERLESS_URL`, `MUAPI_BASE_URL`.
 3. Deploy. Visit `/studio` for the studios; the "Brief → Prompt" button is bottom-right.
 
+**Owner sign-in (2 Oct 2026).** The studio spends the group's MuAPI and Featherless credit,
+so every page and every `/api` route needs a signed session: `middleware.js` refuses anything
+else (401 for an API call, a redirect to `/login` for a page) before any key is injected. The
+sign-in at `/login` asks Xaen Tower to check email, password and authenticator code, and only
+the platform owner (`app_metadata.platform_owner`, the claim the Tower's `is_platform_owner()`
+reads) gets the 4-hour cookie. The Tower session it opens is signed out again at once. Every
+refusal reads the same; the sign-in and sign-out refuse requests started by another site; the
+post-sign-in destination must resolve to the studio itself; each server instance caps sign-in at
+five tries a minute per address. Without a signing key (`STUDIO_SESSION_SECRET`, or `MUAPI_API_KEY`
+to derive one from) the studio stays locked. Recommended: set a dedicated `STUDIO_SESSION_SECRET`
+(so the session key and the MuAPI key are not one secret), and add a Vercel Firewall rate-limit
+rule on `POST /api/studio-auth/login`. Changing `STUDIO_SESSION_EPOCH` signs every session out.
+Tests: `node --test tests/studioSession.test.mjs tests/studioLogin.test.mjs`.
+
 **Security note:** with `MUAPI_API_KEY` set, the key stays server-side. Do not also expose
 it via any `NEXT_PUBLIC_` variable. `NEXT_PUBLIC_MUAPI_MANAGED` is only a boolean flag.
 

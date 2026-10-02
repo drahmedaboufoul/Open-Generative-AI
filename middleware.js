@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { SESSION_COOKIE, sessionSecret, verifySession, safeNextPath } from './lib/studio-session.js';
 
 function addSecurityHeaders(response) {
     // Prevent MIME type sniffing (CWE-693)
@@ -20,8 +21,31 @@ function addSecurityHeaders(response) {
     return response;
 }
 
-export function middleware(request) {
+// The sign-in page and its two routes are the only paths open without a
+// studio session. Everything else, pages and every /api route that injects the
+// server's MuAPI or Featherless key, needs the owner's signed cookie.
+const PUBLIC_PATHS = new Set(['/login', '/api/studio-auth/login', '/api/studio-auth/logout']);
+
+function refuse(request, status, error) {
+    const isApi = request.nextUrl.pathname.startsWith('/api/');
+    if (isApi) {
+        return addSecurityHeaders(NextResponse.json({ error }, { status, headers: { 'Cache-Control': 'no-store' } }));
+    }
+    const login = new URL('/login', request.url);
+    const next = safeNextPath(request.nextUrl.pathname + request.nextUrl.search);
+    if (next !== '/studio') login.searchParams.set('next', next);
+    return addSecurityHeaders(NextResponse.redirect(login, 307));
+}
+
+export async function middleware(request) {
     const url = request.nextUrl;
+
+    if (!PUBLIC_PATHS.has(url.pathname)) {
+        const secret = sessionSecret();
+        if (!secret) return refuse(request, 503, 'Sign-in is not configured on this studio.');
+        const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value, secret);
+        if (!session) return refuse(request, 401, 'Sign in to use the studio.');
+    }
 
     // Catch requests to /api/workflow, /api/app, and /api/v1
     const isMuApi = url.pathname.startsWith('/api/workflow') ||
